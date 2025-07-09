@@ -116,7 +116,7 @@ export default function CarbonWiseDashboard() {
           <button
   onClick={() => signOut({ callbackUrl: '/' })}
   style={{
-    backgroundColor: "#ef4444",
+    backgroundColor: "#0a0a0a",
     color: "white",
     padding: "0.5rem 1rem",
     borderRadius: "6px",
