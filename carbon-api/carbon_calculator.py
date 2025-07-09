@@ -2,6 +2,45 @@ import json
 from typing import Dict, Any, List
 import requests
 
+# === Gemini Chatbot API Configuration ===
+GEMINI_API_KEY = "AIzaSyD1sha-zanu6kQRbTqF9TrQS5IKSy1aLtk"  # Replace with your own key
+GEMINI_MODEL = "models/gemini-2.0-flash"
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+
+def ask_gemini(query: str) -> Dict[str, str]:
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    prompt = (
+        "You are a sustainability expert. "
+        "Answer the following question in 3–5 concise sentences. "
+        "Be clear, direct, and avoid long explanations:\n\n"
+        f"{query}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ]
+    }
+
+    try:
+        response = requests.post(GEMINI_API_URL, headers=headers, json=payload)
+        result = response.json()
+
+        if "candidates" in result:
+            answer = result["candidates"][0]["content"]["parts"][0]["text"]
+            return {"answer": answer.strip()}
+        else:
+            return {"error": result.get("error", "No answer returned.")}
+    except Exception as e:
+        return {"error": str(e)}
+
 # ClimateIQ API key
 CLIMATEIQ_API_KEY = "JGZK133XFH737DDN3ZM34FCCRC"
 
