@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Home, Car, Plane, Utensils, Bus, Check, Leaf, Globe, Users, Zap, Calculator, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient'
+import { useSession } from 'next-auth/react'
 
 
 const CarbonForm = () => {
+    const { data: session, status } = useSession(); 
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({
     country: '',
