@@ -144,12 +144,6 @@ carbonwise/
 
 ## 🔧 Configuration
 
-### **Supabase Setup**
-1. Create a new Supabase project
-2. Copy your project URL and anon key
-3. Set up the database schema (see installation)
-4. Configure Row Level Security policies
-
 ### **NextAuth Setup**
 1. Configure your OAuth providers
 2. Set up callback URLs
