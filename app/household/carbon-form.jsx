@@ -1,6 +1,8 @@
 "use client"
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Home, Car, Plane, Utensils, Bus, Check, Leaf, Globe, Users, Zap, Calculator, Trash2 } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient'
+
 
 const CarbonForm = () => {
   const [step, setStep] = useState(1);
@@ -35,22 +37,84 @@ const CarbonForm = () => {
 
   const handleSubmit = () => {
     setLoading(true);
+  
+    // Emission Factors (kg CO₂ per unit - monthly adjusted where needed)
+    const EF = {
+      electricity: 0.233, // kg CO₂ per kWh
+      gas: 0.184,          // kg CO₂ per kWh
+      oil: 2.52,           // kg CO₂ per litre
+      vehicle: {
+        petrol: 2.31,      // kg CO₂ per litre
+        diesel: 2.68
+      },
+      shortHaulFlight: 250,  // kg CO₂ per short flight (per flight)
+      longHaulFlight: 1100,  // kg CO₂ per long flight (per flight)
+      food: 2.5,            // kg CO₂ per day
+      waste: 1.5,           // kg CO₂ per day
+      public_transport: 0.105 // kg CO₂ per km
+    };
+  
     setTimeout(() => {
-      setResult({
-        total_footprint_kg: 8250,
-        per_person_kg: form.household_size ? 8250 / form.household_size : 8250,
-        breakdown: {
-          home_energy: 2400,
-          vehicles: 3200,
-          flights: 1800,
-          food: 650,
-          waste: 200
-        }
+      // 1. Home energy (monthly usage)
+      const electricity = form.home_energy.electricity_kwh * EF.electricity;
+      const gas = form.home_energy.gas_kwh * EF.gas;
+      const oil = form.home_energy.oil_litres * EF.oil;
+      const home_energy = +(electricity + gas + oil).toFixed(2);
+  
+      // 2. Vehicles (monthly km driven)
+      let vehicles = 0;
+      form.vehicles.forEach(v => {
+        const litres = (v.annual_km / 100) * v.l_per_100km; // annual km → now treat as monthly
+        vehicles += litres * EF.vehicle[v.fuel];
       });
+      vehicles = +vehicles.toFixed(2);
+  
+      // 3. Flights (still per month for input count of flights)
+      const flights = +(shortHaul * EF.shortHaulFlight + longHaul * EF.longHaulFlight).toFixed(2);
+  
+      // 4. Food (number of days in the month)
+      const food = +(form.food.days * EF.food).toFixed(2);
+  
+      // 5. Waste
+      const waste = +(form.waste.days * EF.waste).toFixed(2);
+  
+      // 6. Public Transport (monthly km)
+      let public_transport = 0;
+      form.public_transport.forEach(t => {
+        public_transport += t.annual_km * EF.public_transport; // annual_km should now be monthly_km
+      });
+      public_transport = +public_transport.toFixed(2);
+  
+      const total = +(home_energy + vehicles + flights + food + waste + public_transport).toFixed(2);
+      const per_person = +(total / form.household_size).toFixed(2);
+  
+      const breakdown = { home_energy, vehicles, flights, food, waste, public_transport };
+  
+      setResult({
+        total_footprint_kg: total,
+        per_person_kg: per_person,
+        breakdown
+      });
+  
       setLoading(false);
       setStep(8);
-    }, 1500);
+    }, 1000);
   };
+  
+  const insertDataToSupabase = async () => {
+    const { data: userData } = session || {}; // If you're using NextAuth
+    const { error } = await supabase.from('carbon_data').insert([
+      {
+        user_email: userData?.user?.email || '',
+        total_footprint: total,
+        per_person: per_person,
+        breakdown: JSON.stringify(breakdown)
+      }
+    ])
+    if (error) console.error("Error inserting data:", error)
+  };
+  insertDataToSupabase()
+  
 
   const addVehicle = () => {
     if (vehicle.fuel && vehicle.annual_km && vehicle.l_per_100km) {
@@ -69,12 +133,30 @@ const CarbonForm = () => {
   const next = () => setStep(prev => prev + 1);
   const prev = () => setStep(prev => prev - 1);
 
+  const generateTips = () => {
+    if (!result || !result.breakdown) return [];
+  
+    const tips = [];
+    const b = result.breakdown;
+  
+    if (b.home_energy > 2000) tips.push("🔌 Reduce electricity or gas usage at home by switching to energy-efficient appliances.");
+    if (b.vehicles > 2000) tips.push("🚗 Consider carpooling, using EVs, or reducing car travel distance.");
+    if (b.flights > 2000) tips.push("✈️ Limit air travel or offset flight emissions with certified programs.");
+    if (b.food > 600) tips.push("🥕 Eat more plant-based meals and reduce meat consumption.");
+    if (b.waste > 500) tips.push("♻️ Recycle, compost, and reduce single-use plastics.");
+    if (b.public_transport < 50) tips.push("🚌 Increase your use of buses, trains, or bicycles where possible.");
+  
+    return tips.length ? tips : ["🌍 Great job! You're already minimizing your emissions in most areas."];
+  };
+
+
+  
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(135deg, #ffffff 0%, #008080 100%)',
       padding: '20px',
-      fontFamily: 'system-ui, -apple-system, sans-serif'
+      fontFamily: 'system-ui, -apple-system, sans-serif',
     }}>
       <div style={{ maxWidth: '900px', margin: '0 auto' }}>
         {/* Header */}
@@ -104,7 +186,7 @@ const CarbonForm = () => {
             </h1>
             <Globe size={32} color="#10b981" style={{ animation: 'pulse 2s infinite' }} />
           </div>
-          <p style={{ color: '#e2e8f0', fontSize: '1.2rem', margin: 0 }}>
+          <p style={{ color: '#0a0a0a', fontSize: '1.2rem', margin: 0 }}>
             Calculate your carbon footprint & build a sustainable future
           </p>
         </div>
@@ -121,7 +203,7 @@ const CarbonForm = () => {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: step >= s.number ? s.color : '#cbd5e1',
+                  backgroundColor: step >= s.number ? s.color : '#0a0a0a',
                   transition: 'all 0.3s ease',
                   transform: step === s.number ? 'scale(1.1)' : 'scale(1)',
                   boxShadow: step === s.number ? `0 0 20px ${s.color}40` : 'none'
@@ -229,345 +311,350 @@ const CarbonForm = () => {
           )}
 
           {/* Step 2: Home Energy */}
-          {step === 2 && (
-            <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
-              <Zap size={64} color="#10b981" style={{ marginBottom: '20px' }} />
-              <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
-                Home Energy Usage
-              </h2>
-              <p style={{ color: '#6b7280', marginBottom: '40px' }}>
-                Enter your annual energy consumption
-              </p>
-              <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Electricity (kWh/year)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 3000"
-                    value={form.home_energy.electricity_kwh}
-                    onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, electricity_kwh: Number(e.target.value) } })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Gas (kWh/year)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 12000"
-                    value={form.home_energy.gas_kwh}
-                    onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, gas_kwh: Number(e.target.value) } })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Oil (litres/year)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 500"
-                    value={form.home_energy.oil_litres}
-                    onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, oil_litres: Number(e.target.value) } })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+{step === 2 && (
+  <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
+    <Zap size={64} color="#10b981" style={{ marginBottom: '20px' }} />
+    <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
+      Home Energy Usage
+    </h2>
+    <p style={{ color: '#6b7280', marginBottom: '40px' }}>
+      Enter your <strong>monthly</strong> energy consumption
+    </p>
+    <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Electricity (kWh/month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 300"
+          value={form.home_energy.electricity_kwh}
+          onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, electricity_kwh: Number(e.target.value) } })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Gas (kWh/month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 250"
+          value={form.home_energy.gas_kwh}
+          onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, gas_kwh: Number(e.target.value) } })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Oil (litres/month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 30"
+          value={form.home_energy.oil_litres}
+          onChange={e => setForm({ ...form, home_energy: { ...form.home_energy, oil_litres: Number(e.target.value) } })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+    </div>
+  </div>
+)}
+
 
           {/* Step 3: Vehicles */}
-          {step === 3 && (
-            <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
-              <Car size={64} color="#ef4444" style={{ marginBottom: '20px' }} />
-              <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
-                Vehicle Usage
-              </h2>
-              <p style={{ color: '#6b7280', marginBottom: '40px' }}>
-                Add information about your vehicles
-              </p>
-              <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Fuel Type
-                  </label>
-                  <select
-                    value={vehicle.fuel}
-                    onChange={e => setVehicle({ ...vehicle, fuel: e.target.value })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px',
-                      backgroundColor: 'white'
-                    }}
-                  >
-                    <option value="">Select Fuel Type</option>
-                    <option value="petrol">Petrol</option>
-                    <option value="diesel">Diesel</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Annual Distance (km)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 15000"
-                    value={vehicle.annual_km}
-                    onChange={e => setVehicle({ ...vehicle, annual_km: Number(e.target.value) })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Fuel Consumption (L/100km)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 7.5"
-                    value={vehicle.l_per_100km}
-                    onChange={e => setVehicle({ ...vehicle, l_per_100km: Number(e.target.value) })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <button
-                  onClick={addVehicle}
-                  style={{
-                    width: '100%',
-                    padding: '15px',
-                    backgroundColor: '#ef4444',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease',
-                    ':hover': { backgroundColor: '#dc2626' }
-                  }}
-                >
-                  Add Vehicle
-                </button>
-                {form.vehicles.length > 0 && (
-                  <div style={{
-                    backgroundColor: '#f8fafc',
-                    padding: '20px',
-                    borderRadius: '12px',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <h3 style={{ fontWeight: '600', marginBottom: '10px' }}>Added Vehicles:</h3>
-                    {form.vehicles.map((v, i) => (
-                      <div key={i} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>
-                        {v.fuel} - {v.annual_km}km/year - {v.l_per_100km}L/100km
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+{step === 3 && (
+  <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
+    <Car size={64} color="#ef4444" style={{ marginBottom: '20px' }} />
+    <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
+      Vehicle Usage
+    </h2>
+    <p style={{ color: '#6b7280', marginBottom: '40px' }}>
+      Add information about your <strong>monthly</strong> vehicle usage
+    </p>
+    <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Fuel Type
+        </label>
+        <select
+          value={vehicle.fuel}
+          onChange={e => setVehicle({ ...vehicle, fuel: e.target.value })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px',
+            backgroundColor: 'white'
+          }}
+        >
+          <option value="">Select Fuel Type</option>
+          <option value="petrol">Petrol</option>
+          <option value="diesel">Diesel</option>
+        </select>
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Distance Driven (km/month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 1200"
+          value={vehicle.annual_km}
+          onChange={e => setVehicle({ ...vehicle, annual_km: Number(e.target.value) })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Fuel Consumption (L/100km)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 7.5"
+          value={vehicle.l_per_100km}
+          onChange={e => setVehicle({ ...vehicle, l_per_100km: Number(e.target.value) })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <button
+        onClick={addVehicle}
+        style={{
+          width: '100%',
+          padding: '15px',
+          backgroundColor: '#ef4444',
+          color: 'white',
+          border: 'none',
+          borderRadius: '12px',
+          fontSize: '16px',
+          fontWeight: '600',
+          cursor: 'pointer',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        Add Vehicle
+      </button>
+
+      {form.vehicles.length > 0 && (
+        <div style={{
+          backgroundColor: '#f8fafc',
+          padding: '20px',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <h3 style={{ fontWeight: '600', marginBottom: '10px' }}>Added Vehicles:</h3>
+          {form.vehicles.map((v, i) => (
+            <div key={i} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>
+              {v.fuel} - {v.annual_km} km/month - {v.l_per_100km} L/100km
             </div>
-          )}
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
 
           {/* Step 4: Flights */}
-          {step === 4 && (
-            <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
-              <Plane size={64} color="#8b5cf6" style={{ marginBottom: '20px' }} />
-              <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
-                Air Travel
-              </h2>
-              <p style={{ color: '#6b7280', marginBottom: '40px' }}>
-                How many flights do you take per year?
-              </p>
-              <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Short-haul Flights (under 3 hours)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 4"
-                    value={shortHaul}
-                    onChange={e => setShortHaul(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Long-haul Flights (over 3 hours)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 2"
-                    value={longHaul}
-                    onChange={e => setLongHaul(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+{step === 4 && (
+  <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
+    <Plane size={64} color="#8b5cf6" style={{ marginBottom: '20px' }} />
+    <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
+      Air Travel
+    </h2>
+    <p style={{ color: '#6b7280', marginBottom: '40px' }}>
+      How many flights do you take per <strong>month</strong>?
+    </p>
+    <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Short-haul Flights (under 3 hours)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 1"
+          value={shortHaul}
+          onChange={e => setShortHaul(Number(e.target.value))}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Long-haul Flights (over 3 hours)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 0.5"
+          value={longHaul}
+          onChange={e => setLongHaul(Number(e.target.value))}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+    </div>
+  </div>
+)}
+
 
           {/* Step 5: Food & Waste */}
-          {step === 5 && (
-            <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
-              <Utensils size={64} color="#f59e0b" style={{ marginBottom: '20px' }} />
-              <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
-                Food & Waste
-              </h2>
-              <p style={{ color: '#6b7280', marginBottom: '40px' }}>
-                Track your consumption and waste patterns
-              </p>
-              <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Days of Food Consumption
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="365"
-                    value={form.food.days}
-                    onChange={e => setForm({ ...form, food: { days: Number(e.target.value) } })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Days of Waste Generation
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="365"
-                    value={form.waste.days}
-                    onChange={e => setForm({ ...form, waste: { days: Number(e.target.value) } })}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+{step === 5 && (
+  <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
+    <Utensils size={64} color="#f59e0b" style={{ marginBottom: '20px' }} />
+    <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
+      Food & Waste
+    </h2>
+    <p style={{ color: '#6b7280', marginBottom: '40px' }}>
+      Track your consumption and waste patterns <strong>monthly</strong>
+    </p>
+    <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Days of Food Consumption (per month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 30"
+          value={form.food.days}
+          onChange={e => setForm({ ...form, food: { days: Number(e.target.value) } })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Days of Waste Generation (per month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 30"
+          value={form.waste.days}
+          onChange={e => setForm({ ...form, waste: { days: Number(e.target.value) } })}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+    </div>
+  </div>
+)}
+
 
           {/* Step 6: Public Transport */}
-          {step === 6 && (
-            <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
-              <Bus size={64} color="#6366f1" style={{ marginBottom: '20px' }} />
-              <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
-                Public Transport
-              </h2>
-              <p style={{ color: '#6b7280', marginBottom: '40px' }}>
-                Add your public transportation usage
-              </p>
-              <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
-                <div>
-                  <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-                    Annual Distance (km)
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="e.g., 2000"
-                    value={transportKm}
-                    onChange={e => setTransportKm(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '15px',
-                      border: '2px solid #e5e7eb',
-                      borderRadius: '12px',
-                      fontSize: '16px'
-                    }}
-                  />
-                </div>
-                <button
-                  onClick={addTransport}
-                  style={{
-                    width: '100%',
-                    padding: '15px',
-                    backgroundColor: '#6366f1',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.3s ease'
-                  }}
-                >
-                  Add Public Transport
-                </button>
-                {form.public_transport.length > 0 && (
-                  <div style={{
-                    backgroundColor: '#f8fafc',
-                    padding: '20px',
-                    borderRadius: '12px',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <h3 style={{ fontWeight: '600', marginBottom: '10px' }}>Added Transport:</h3>
-                    {form.public_transport.map((t, i) => (
-                      <div key={i} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>
-                        {t.annual_km}km/year
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+{step === 6 && (
+  <div style={{ textAlign: 'center', animation: 'fadeIn 0.5s ease-in' }}>
+    <Bus size={64} color="#6366f1" style={{ marginBottom: '20px' }} />
+    <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#1f2937', marginBottom: '10px' }}>
+      Public Transport
+    </h2>
+    <p style={{ color: '#6b7280', marginBottom: '40px' }}>
+      Add your <strong>monthly</strong> public transportation usage
+    </p>
+    <div style={{ display: 'grid', gap: '25px', textAlign: 'left' }}>
+      <div>
+        <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
+          Distance Travelled (km/month)
+        </label>
+        <input
+          type="number"
+          placeholder="e.g., 150"
+          value={transportKm}
+          onChange={e => setTransportKm(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '15px',
+            border: '2px solid #e5e7eb',
+            borderRadius: '12px',
+            fontSize: '16px'
+          }}
+        />
+      </div>
+      <button
+        onClick={addTransport}
+        style={{
+          width: '100%',
+          padding: '15px',
+          backgroundColor: '#6366f1',
+          color: 'white',
+          border: 'none',
+          borderRadius: '12px',
+          fontSize: '16px',
+          fontWeight: '600',
+          cursor: 'pointer',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        Add Public Transport
+      </button>
+      {form.public_transport.length > 0 && (
+        <div style={{
+          backgroundColor: '#f8fafc',
+          padding: '20px',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0'
+        }}>
+          <h3 style={{ fontWeight: '600', marginBottom: '10px' }}>Added Transport:</h3>
+          {form.public_transport.map((t, i) => (
+            <div key={i} style={{ fontSize: '14px', color: '#6b7280', marginBottom: '5px' }}>
+              {t.annual_km} km/month
             </div>
-          )}
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
 
           {/* Step 7: Review */}
           {step === 7 && (
@@ -703,14 +790,14 @@ const CarbonForm = () => {
                 </div>
               </div>
 
-              <div style={{
+             <div style={{
                 backgroundColor: '#fef3c7',
                 border: '1px solid #fbbf24',
                 borderLeft: '4px solid #f59e0b',
                 borderRadius: '12px',
                 padding: '25px'
               }}>
-                <h3 style={{ fontSize: '1.2rem', fontWeight: '700', color: '#92400e', marginBottom: '15px' }}>
+                <h3  style={{ fontSize: '1.2rem', fontWeight: '700', color: '#92400e', marginBottom: '15px' }}>
                   💡 Tips to Reduce Your Footprint
                 </h3>
                 <div style={{ color: '#78350f', fontSize: '14px', lineHeight: '1.6' }}>

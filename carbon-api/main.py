@@ -12,9 +12,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 @app.post("/api/calculate")
 async def calculate(request: Request):
     data = await request.json()
+    print("Received data:", data)  # ✅ Log incoming request
     result = calculate_carbon_footprint(data)
     return result
+
+
+

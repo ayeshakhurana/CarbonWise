@@ -1,89 +1,118 @@
 'use client'
-import React from 'react'
-import { signOut, useSession } from 'next-auth/react'
+import React, { useEffect, useState } from 'react'
+import { useSession, signOut } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { Leaf, Users, Info, Gamepad2 } from 'lucide-react'
+import { supabase } from '../lib/supabaseClient'
 
-const Dashboard = () => {
-  const { data: session, status } = useSession()
+const features = [
+  {
+    title: 'Track Your Carbon Footprint',
+    description: 'View and manage your carbon footprint in real time.',
+    icon: Leaf,
+    href: '/household',
+    color: 'bg-green-100 text-green-700',
+  },
+  {
+    title: 'Community Service Programs',
+    description: 'Join community projects and contribute to a greener future.',
+    icon: Users,
+    href: '/community',
+    color: 'bg-blue-100 text-blue-700',
+  },
+  {
+    title: 'Contribute Tips & Info',
+    description: 'Help others by sharing tips to reduce emissions.',
+    icon: Info,
+    href: '/contribute',
+    color: 'bg-yellow-100 text-yellow-700',
+  },
+  {
+    title: 'Play Climate Game',
+    description: 'Learn while having fun with an eco-friendly game.',
+    icon: Gamepad2,
+    href: '/game',
+    color: 'bg-purple-100 text-purple-700',
+  },
+]
 
-  if (status === "loading") {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Loading dashboard...</p>
-        </div>
-      </div>
-    )
-  }
+export default function CarbonWiseDashboard() {
+  const { data: session } = useSession()
+  const router = useRouter()
+  const [records, setRecords] = useState([])
 
-  if (status === "unauthenticated") {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <p className="text-gray-600 mb-4">Please sign in to access your dashboard</p>
-          <button
-            onClick={() => window.location.href = '/login'}
-            className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data, error } = await supabase
+        .from('carbon form')
+        .select('*')
+        .order('created_at', { ascending: false })
+  
+      if (error) {
+        console.error('❌ Supabase fetch error:', error.message || error)
+      } else {
+        console.log('✅ Fetched data from Supabase:', data)
+        setRecords(data)
+      }
+    }
+  
+    fetchData()
+  }, [])
+  
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-teal-50 to-emerald-100">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-100">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <span className="text-2xl font-bold text-teal-600">🌿 CarbonWise</span>
+      <header className="sticky top-0 z-10 bg-white shadow-md border-b border-emerald-100 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          {/* Logo + Title */}
+          <div className="flex items-center space-x-3">
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-2 rounded-xl">
+              <Leaf className="text-white w-6 h-6" />
             </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="text-gray-700">
-                Hi, <span className="font-semibold text-teal-600">{session?.user?.name || 'Guest'}</span>
-              </div>
-              <button
-                onClick={() => signOut({ callbackUrl: '/' })}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium text-sm"
-              >
-                Sign Out
-              </button>
-            </div>
+            <h1 className="text-2xl font-bold text-gray-800">CarbonWise</h1>
+          </div>
+
+          {/* User Greeting + Sign Out */}
+          <div className="flex items-center space-x-4">
+            <span className="text-gray-700 font-medium text-md">
+              {session?.user?.name ? `Hi, ${session.user.name}` : 'Welcome'}
+            </span>
+            <button
+              onClick={() => signOut()}
+              className="bg-red-500 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-red-600 transition"
+            >
+              Sign Out
+            </button>
           </div>
         </div>
       </header>
 
-      {/* Dashboard Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Dashboard</h1>
-          <p className="text-gray-600">Welcome to your carbon footprint tracking dashboard</p>
+      {/* Feature Section */}
+      <main className="max-w-7xl mx-auto px-6 py-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {features.map((feature, index) => (
+            <div
+              key={index}
+              onClick={() => router.push(feature.href)}
+              className={`cursor-pointer rounded-3xl p-6 shadow-lg hover:shadow-2xl hover:scale-[1.02] transform transition-all duration-300 ${feature.color}`}
+            >
+              <div className="flex items-center mb-4">
+                <feature.icon className="w-6 h-6 mr-3" />
+                <h3 className="text-xl font-semibold">{feature.title}</h3>
+              </div>
+              <p className="text-sm text-gray-700">{feature.description}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Dashboard Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Carbon Footprint</h3>
-            <p className="text-gray-600">Track your daily emissions</p>
+        {/* Optional: Display record count from Supabase */}
+        {records.length > 0 && (
+          <div className="mt-10 text-gray-600 text-sm text-center">
+            Showing {records.length} carbon footprint records stored.
           </div>
-          
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Reduction Goals</h3>
-            <p className="text-gray-600">Set and monitor your targets</p>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Offset Projects</h3>
-            <p className="text-gray-600">Support environmental initiatives</p>
-          </div>
-        </div>
+        )}
       </main>
     </div>
   )
 }
-
-export default Dashboard
